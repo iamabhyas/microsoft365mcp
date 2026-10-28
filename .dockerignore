@@ -1,0 +1,10 @@
+.venv
+.git
+.pytest_cache
+.cursor
+__pycache__
+**/__pycache__
+*.py[oc]
+tests
+.env
+data

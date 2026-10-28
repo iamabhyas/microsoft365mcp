@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "microsoft365": {
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": ["-m", "microsoft365mcp"]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+services:
+  microsoft365mcp:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      M365_TRANSPORT: http
+      M365_HOST: 0.0.0.0
+      M365_PORT: "8000"
+      M365_TOKEN_DIR: /data/tokens
+    volumes:
+      - ./data/tokens:/data/tokens
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped

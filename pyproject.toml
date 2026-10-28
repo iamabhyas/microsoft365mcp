@@ -1,0 +1,24 @@
+[project]
+name = "microsoft365mcp"
+version = "0.1.0"
+description = "Read-only proxy for the Claude Microsoft 365 connector"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=4.1.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[project.scripts]
+microsoft365mcp = "microsoft365mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
