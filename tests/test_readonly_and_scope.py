@@ -50,6 +50,7 @@ def test_read_tools_are_exposed_and_write_tools_are_disabled() -> None:
     assert READ_TOOLS <= names
     assert names.isdisjoint(WRITE_TOOLS)
     assert "outlook_future_write" not in names
+    assert calls == []
 
 
 def test_write_tool_call_returns_no_content() -> None:

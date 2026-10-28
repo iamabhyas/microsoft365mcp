@@ -19,7 +19,7 @@ uv run fastmcp dev inspector main.py
 uv run python -m microsoft365mcp
 ```
 
-The first upstream call opens a browser to sign in. Set `M365_TOKEN_ENCRYPTION_KEY` and `M365_TOKEN_DIR` when that sign-in should survive a restart.
+Listing tools does not contact Microsoft, so a hosted build can inspect the server without a browser. The first tool call opens a browser to sign in. Set `M365_TOKEN_ENCRYPTION_KEY` and `M365_TOKEN_DIR` when that sign-in should survive a restart.
 
 ## HTTP deployment
 

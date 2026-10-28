@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import logging
 import sys
+from typing import Any
 
 import anyio
 import mcp_types
 from fastmcp import Client, FastMCP
 from fastmcp.client.auth.oauth import OAuth
 from fastmcp.exceptions import ToolError
-from fastmcp.server import create_proxy
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.server.transforms.visibility import Visibility
+from fastmcp.tools.base import Tool, ToolResult
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -37,13 +38,11 @@ def create_readonly_server(
     policy: ReachabilityPolicy | None = None,
     settings: Settings | None = None,
 ) -> FastMCP:
-    """Proxy the connector and expose only its read and search tools."""
+    """Expose the read-only connector without contacting Microsoft until a tool runs."""
     resolved = settings or Settings.from_env()
     if resolved.serves_http:
         resolved.validate_for_serve()
-    target = _upstream_target(upstream, resolved)
-    proxy = create_proxy(
-        target,
+    server = FastMCP(
         name="microsoft365",
         instructions=_INSTRUCTIONS,
         auth=(
@@ -53,15 +52,17 @@ def create_readonly_server(
         ),
         mask_error_details=resolved.serves_http,
     )
-    proxy.add_transform(Visibility(False, components={"tool"}))
-    proxy.add_transform(Visibility(True, names=set(READ_TOOLS)))
-    proxy.add_middleware(
+    for name in sorted(READ_TOOLS):
+        server.add_tool(ForwardingTool(name=name, upstream=upstream, settings=resolved))
+    server.add_transform(Visibility(False, components={"tool"}))
+    server.add_transform(Visibility(True, names=set(READ_TOOLS)))
+    server.add_middleware(
         ReadOnlyScopeMiddleware(
             policy if policy is not None else resolved.policy,
         )
     )
-    _install_health(proxy)
-    return proxy
+    _install_health(server)
+    return server
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -129,6 +130,45 @@ def login() -> None:
     print("Microsoft 365 sign-in saved.", file=sys.stderr)
 
 
+class ForwardingTool(Tool):
+    """A read tool whose schema is local and whose call goes to the connector."""
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        upstream: FastMCP | str | None,
+        settings: Settings,
+    ) -> None:
+        super().__init__(
+            name=name,
+            description=f"Read-only Microsoft 365 {name.replace('_', ' ')}.",
+            parameters={
+                "type": "object",
+                "additionalProperties": True,
+                "properties": {
+                    "query": {"type": "string"},
+                    "mailbox": {"type": "string"},
+                    "folder": {"type": "string"},
+                    "uri": {"type": "string"},
+                },
+            },
+        )
+        self._upstream = upstream
+        self._settings = settings
+
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        client = _client_for(self._upstream, self._settings)
+        async with client:
+            result = await client.call_tool_mcp(self.name, arguments or {})
+        if result.is_error:
+            text = "The Microsoft 365 connector returned an error."
+            if result.content and isinstance(result.content[0], mcp_types.TextContent):
+                text = result.content[0].text
+            raise ToolError(text)
+        return ToolResult.from_mcp_result(result)
+
+
 class ReadOnlyScopeMiddleware(Middleware):
     """Reject write tools and mailboxes or folders outside the local policy."""
 
@@ -162,25 +202,29 @@ def _install_health(server: FastMCP) -> None:
         return JSONResponse({"status": "ready", "service": "microsoft365mcp"})
 
 
-def _upstream_target(upstream: FastMCP | str | None, settings: Settings) -> FastMCP | Client:
+def _client_for(upstream: FastMCP | str | None, settings: Settings) -> Client:
     if isinstance(upstream, FastMCP):
-        return upstream
-    if upstream is not None:
-        settings = Settings(
-            transport=settings.transport,
-            host=settings.host,
-            port=settings.port,
-            mcp_url=upstream,
-            api_token=settings.api_token,
-            token_dir=settings.token_dir,
-            token_encryption_key=settings.token_encryption_key,
-            oauth_callback_host=settings.oauth_callback_host,
-            oauth_callback_port=settings.oauth_callback_port,
-            allowed_hosts=settings.allowed_hosts,
-            log_level=settings.log_level,
-            policy=settings.policy,
-        )
-    return _oauth_client(settings)
+        return Client(upstream)
+    return _oauth_client(_settings_for_url(upstream, settings))
+
+
+def _settings_for_url(upstream: str | None, settings: Settings) -> Settings:
+    if upstream is None:
+        return settings
+    return Settings(
+        transport=settings.transport,
+        host=settings.host,
+        port=settings.port,
+        mcp_url=upstream,
+        api_token=settings.api_token,
+        token_dir=settings.token_dir,
+        token_encryption_key=settings.token_encryption_key,
+        oauth_callback_host=settings.oauth_callback_host,
+        oauth_callback_port=settings.oauth_callback_port,
+        allowed_hosts=settings.allowed_hosts,
+        log_level=settings.log_level,
+        policy=settings.policy,
+    )
 
 
 def _oauth_client(settings: Settings) -> Client:
